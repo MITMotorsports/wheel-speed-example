@@ -1,73 +1,72 @@
 #include "chip.h"
-#include <stdio.h>
+#include "board.h"
+
+#define BAUDRATE 57600
 
 const uint32_t OscRateIn = 12000000;
 
-#define LED_PIN 7
-#define TICKRATE_HZ1 (10) /* 10 ticks per second */
-#define TICKRATE_HZ2 (11) /* 11 ticks per second */
+volatile uint32_t msTicks;
+
+/****************************************************************************************
+ * Private functions
+ ***************************************************************************************/
 
 static void GPIO_Config(void) {
 	Chip_GPIO_Init(LPC_GPIO);
 
 }
 
-static void LED_Config(void) {
-	Chip_GPIO_WriteDirBit(LPC_GPIO, 0, LED_PIN, true);
-
-}
-
-static void LED_On(void) {
-	Chip_GPIO_SetPinState(LPC_GPIO, 0, LED_PIN, true);
-}
-
-static void LED_Off(void) {
-	Chip_GPIO_SetPinState(LPC_GPIO, 0, LED_PIN, false);
-}
-
-
 void SysTick_Handler(void) {
-	LED_Off();
+	msTicks++;
 }
 
 void TIMER32_0_IRQHandler(void) {
 	if (Chip_TIMER_MatchPending(LPC_TIMER32_0, 1)) {
 		Chip_TIMER_ClearMatch(LPC_TIMER32_0, 1);
-		LED_On();
+		//LED_On();
 	}
 }
 
-/**
- *  * @brief	Main routine for SSP example
- *   * @return	Nothing
- *    */
-int main(void)
-{
-	uint32_t timerFreq;
+int main(void) {
 
+	// Update system core clock rate
 	SystemCoreClockUpdate();
 
-	/* LED Initialization */
-	GPIO_Config();
-	LED_Config();
+	// Initialize and start system tick timer
+	if (SysTick_Config(SystemCoreClock / 1000)) {
+		Board_Println("Failed SysTick_Config");
+		//Error
+		while(1);
+	}
 
-	SysTick_Config(SystemCoreClock / TICKRATE_HZ1);
+	/* UART setup */
+	Chip_IOCON_PinMuxSet(LPC_IOCON, IOCON_PIO1_6, (IOCON_FUNC1 | IOCON_MODE_INACT)); /* RXD */
+	Chip_IOCON_PinMuxSet(LPC_IOCON, IOCON_PIO1_7, (IOCON_FUNC1 | IOCON_MODE_INACT)); /* TXD */
+	Chip_UART_Init(LPC_USART);
+	Chip_UART_SetBaud(LPC_USART, BAUDRATE);
+	// Configure data width, parity, and stop bits
+	Chip_UART_ConfigData(LPC_USART, (UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_DIS));
+	Chip_UART_SetupFIFOS(LPC_USART, (UART_FCR_FIFO_EN | UART_FCR_TRG_LEV2));
+	Chip_UART_TXEnable(LPC_USART);
+
+	// Initialize 32 bit timer
 	Chip_TIMER_Init(LPC_TIMER32_0);
 
-	timerFreq = Chip_Clock_GetSystemClockRate();
-
-	/* Timer setup for match and interrupt at TICKRATE_HZ */
+	/* Timer setup */
+	// Reset timer terminal and prescale counts to zero
 	Chip_TIMER_Reset(LPC_TIMER32_0);
-	Chip_TIMER_MatchEnableInt(LPC_TIMER32_0, 1);
-	Chip_TIMER_SetMatch(LPC_TIMER32_0, 1, (timerFreq / TICKRATE_HZ2));
-	Chip_TIMER_ResetOnMatchEnable(LPC_TIMER32_0, 1);
+	// Start the timer
 	Chip_TIMER_Enable(LPC_TIMER32_0);
 
-	/* Enable timer interrupt */
+	// Clear pending bit of an external interrupt
 	NVIC_ClearPendingIRQ(TIMER_32_0_IRQn);
+	// Enable timer interrupt
 	NVIC_EnableIRQ(TIMER_32_0_IRQn);
+
+	Board_Println("Started up");
 										
 	while(1){
+		// Wait for interrupt
 		__WFI();
 	}
 
