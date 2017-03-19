@@ -3,31 +3,30 @@
 
 #define BAUDRATE 57600
 
+#define TIME_BETWEEN_UART_MESSAGES 1000
+
 const uint32_t OscRateIn = 12000000;
 
 volatile uint32_t msTicks;
 
-/****************************************************************************************
- * Private functions
- ***************************************************************************************/
+uint32_t timeBetweenTicks;
+uint32_t lastUARTMessageTime;
 
-static void GPIO_Config(void) {
-	Chip_GPIO_Init(LPC_GPIO);
-
-}
 
 void SysTick_Handler(void) {
 	msTicks++;
 }
 
 void TIMER32_0_IRQHandler(void) {
-	if (Chip_TIMER_MatchPending(LPC_TIMER32_0, 1)) {
-		Chip_TIMER_ClearMatch(LPC_TIMER32_0, 1);
-		//LED_On();
-	}
+	Chip_TIMER_Reset(LPC_TIMER32_0);		/* Reset the timer immediately */
+	Chip_TIMER_ClearCapture(LPC_TIMER32_0, 0);	/* Clear the capture */
+	timeBetweenTicks = Chip_TIMER_ReadCapture(LPC_TIMER32_0,0);
 }
 
 int main(void) {
+
+	// Initialize variables
+	timeBetweenTicks = 0;
 
 	// Update system core clock rate
 	SystemCoreClockUpdate();
@@ -49,25 +48,38 @@ int main(void) {
 	Chip_UART_SetupFIFOS(LPC_USART, (UART_FCR_FIFO_EN | UART_FCR_TRG_LEV2));
 	Chip_UART_TXEnable(LPC_USART);
 
-	// Initialize 32 bit timer
+	// Timer Initialization
 	Chip_TIMER_Init(LPC_TIMER32_0);
+	Chip_TIMER_Reset(LPC_TIMER32_0);		/* Reset the timer */
+	Chip_TIMER_PrescaleSet(LPC_TIMER32_0, 0);	/* Set the prescaler to zero */
+	LPC_TIMER32_0->CCR |= 5;			/* Set the first and third bits of
+							   the capture control register to
+							   1 */ 
 
-	/* Timer setup */
-	// Reset timer terminal and prescale counts to zero
-	Chip_TIMER_Reset(LPC_TIMER32_0);
+	// Interrupt Setup
+	Chip_IOCON_PinMuxSet(LPC_IOCON, IOCON_PIO1_5, (IOCON_FUNC2|IOCON_MODE_INACT));	
+						/* Set PIO1_5 to the 32 bit timer capture 
+						 * function */
+	NVIC_SetPriority(SysTick_IRQn, 1);	/* Give the SysTick function a lower 
+						   priority */
+	NVIC_SetPriority(TIMER_32_0_IRQn, 0);	/* Give 32 bit timer capture 
+						   interrupt the highest priority */
+	NVIC_ClearPendingIRQ(TIMER_32_0_IRQn);	/* Clear pending interrupt */
+	NVIC_EnableIRQ(TIMER_32_0_IRQn);	/* Enable timer interrupt */
+
 	// Start the timer
 	Chip_TIMER_Enable(LPC_TIMER32_0);
-
-	// Clear pending bit of an external interrupt
-	NVIC_ClearPendingIRQ(TIMER_32_0_IRQn);
-	// Enable timer interrupt
-	NVIC_EnableIRQ(TIMER_32_0_IRQn);
 
 	Board_Println("Started up");
 										
 	while(1){
-		// Wait for interrupt
-		__WFI();
+
+		if ( (msTicks - lastUARTMessageTime) > TIME_BETWEEN_UART_MESSAGES) {
+			lastUARTMessageTime = msTicks;
+			Board_Print("timeBetweenTicks: ");
+			Board_Println_Int(timeBetweenTicks, 10);
+		}
+
 	}
 
 	return 0;
