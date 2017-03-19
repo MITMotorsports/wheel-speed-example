@@ -9,7 +9,7 @@ const uint32_t OscRateIn = 12000000;
 
 volatile uint32_t msTicks;
 
-uint32_t timeBetweenTicks;
+uint32_t clockCyclesBetweenTicks;
 uint32_t lastUARTMessageTime;
 
 
@@ -20,13 +20,13 @@ void SysTick_Handler(void) {
 void TIMER32_0_IRQHandler(void) {
 	Chip_TIMER_Reset(LPC_TIMER32_0);		/* Reset the timer immediately */
 	Chip_TIMER_ClearCapture(LPC_TIMER32_0, 0);	/* Clear the capture */
-	timeBetweenTicks = Chip_TIMER_ReadCapture(LPC_TIMER32_0,0);
+	clockCyclesBetweenTicks = Chip_TIMER_ReadCapture(LPC_TIMER32_0,0);
 }
 
 int main(void) {
 
 	// Initialize variables
-	timeBetweenTicks = 0;
+	clockCyclesBetweenTicks = 0;
 
 	// Update system core clock rate
 	SystemCoreClockUpdate();
@@ -76,8 +76,8 @@ int main(void) {
 
 		if ( (msTicks - lastUARTMessageTime) > TIME_BETWEEN_UART_MESSAGES) {
 			lastUARTMessageTime = msTicks;
-			Board_Print("timeBetweenTicks: ");
-			Board_Println_Int(timeBetweenTicks, 10);
+			Board_Print("clockCyclesBetweenTicks: ");
+			Board_Println_Int(clockCyclesBetweenTicks, 10);
 		}
 
 	}
